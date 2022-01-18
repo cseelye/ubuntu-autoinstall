@@ -5,11 +5,12 @@ shopt -s expand_aliases
 
 
 ISO_URL=${ISO_URL:-https://releases.ubuntu.com/20.04.3/ubuntu-20.04.3-live-server-amd64.iso}
+OUTFILE=${OUTFILE:-autoinstall_ubuntu.iso}
+
 WORKDIR=${WORKDIR:-./work}
 OUTDIR=${OUTDIR:-./out}
-OUTFILE=${OUTFILE:-${OUTDIR}/ubuntu.iso}
 
-
+OUTPATH=${OUTDIR}/${OUTFILE}
 
 alias rm='rm --one-file-system --force'
 alias rmr='rm --recursive'
@@ -21,6 +22,18 @@ if [[ ! -e ${AUTOINSTALL_DIR} ]]; then
     echo "Missing autoinstall dir"
     exit 1
 fi
+
+function cleanup()
+{
+    (
+        set +u
+        if [[ -n ${isomount} ]]; then
+            umount ${isomount} &>/dev/null || true
+        fi
+        rm ${OUTPATH}
+    )
+}
+trap cleanup SIGINT SIGTERM ERR
 
 mkdir ${WORKDIR} ${OUTDIR}
 
@@ -74,8 +87,9 @@ sed -i -E "s|(append\s+)|\1 ${boot_options} |g" ${scratch}/isolinux/txt.cfg
 
 # Build the new ISO
 echo ">>> Creating new ISO file"
+tmpout=$(mktemp)
 (
-mkisofs -o ${OUTFILE} \
+mkisofs -o ${tmpout} \
     -ldots \
     -allow-multidot \
     -d \
@@ -88,10 +102,11 @@ mkisofs -o ${OUTFILE} \
     -b isolinux/isolinux.bin \
     -c isolinux/isolinux.cat \
     ${scratch}
-isohybrid ${OUTFILE}
+isohybrid ${tmpout}
 ) 2>&1 | sed -e 's/^/    /'
+mv ${tmpout} ${OUTPATH}
 
 echo ">>> Successfully created ISO"
 (
-ls -lh ${OUTFILE}
+ls -lh ${OUTPATH}
 ) | sed -e 's/^/    /'
