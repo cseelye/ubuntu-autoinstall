@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -eEuo pipefail
+
+env_file="${1:-.host_env}"
+
+known_vars=( "ISO_URL" "WORKDIR" "OUTDIR" "OUTFILE" )
+
+# Remove any old version of the file
+rm -f ${env_file}
+touch ${env_file}
+
+# For each variable name, if the variable is set (including set to empty string) then add it to the env file
+for varname in "${known_vars[@]}"; do
+    if [[ -n ${!varname+x} ]]; then
+        echo "${varname}=${!varname}" >> ${env_file}
+    fi
+done
