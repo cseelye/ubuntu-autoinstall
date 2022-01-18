@@ -1,0 +1,97 @@
+#!/bin/bash
+set -eEuo pipefail
+shopt -s expand_aliases
+#set -x
+
+
+ISO_URL=${ISO_URL:-https://releases.ubuntu.com/20.04.3/ubuntu-20.04.3-live-server-amd64.iso}
+WORKDIR=${WORKDIR:-./work}
+OUTDIR=${OUTDIR:-./out}
+OUTFILE=${OUTFILE:-${OUTDIR}/ubuntu.iso}
+
+
+
+alias rm='rm --one-file-system --force'
+alias rmr='rm --recursive'
+alias mkdir='mkdir --parent'
+
+AUTOINSTALL_DIR=./autoinstall
+
+if [[ ! -e ${AUTOINSTALL_DIR} ]]; then
+    echo "Missing autoinstall dir"
+    exit 1
+fi
+
+mkdir ${WORKDIR} ${OUTDIR}
+
+# Download Ubuntu ISO
+source_iso=${WORKDIR}/ubuntu.iso
+if [[ ! -e ${source_iso} ]]; then
+    echo ">>> Downloading ISO file"
+    (
+    curl --fail \
+        --silent \
+        --show-error \
+        --location \
+        --output ${source_iso} \
+        ${ISO_URL}
+    ) | sed -e 's/^/    /'
+fi
+
+# Mount and extract the ISO contents
+echo ">>> Extracting ISO file"
+isomount=${WORKDIR}/isomount
+scratch=$(mktemp -d)
+(
+rmr ${isomount} ${scratch}
+mkdir ${isomount} ${scratch}
+
+mount -o loop,ro ${source_iso} ${isomount}
+rsync -a ${isomount}/ ${scratch}
+umount ${isomount}
+) | sed -e 's/^/    /'
+
+# Copy the autoinstall and resources directories to the image
+echo ">>> Adding autoinstall files"
+(
+cp -av ./autoinstall ${scratch}
+) | sed -e 's/^/    /'
+
+if [[ -e ./resources ]]; then
+    echo ">>> Adding resource files"
+    (
+    cp -av ./resources ${scratch}
+    ) | sed -e 's/^/    /'
+fi
+
+# Update the bootloader 
+echo ">>> Updating bootloader"
+(
+boot_options="autoinstall ds=nocloud;s=/cdrom/autoinstall"
+sed -i -E "s|(linux\s+\S+)|\1 ${boot_options} |g" ${scratch}/boot/grub/grub.cfg
+sed -i -E "s|(append\s+)|\1 ${boot_options} |g" ${scratch}/isolinux/txt.cfg
+) | sed -e 's/^/    /'
+
+# Build the new ISO
+echo ">>> Creating new ISO file"
+(
+mkisofs -o ${OUTFILE} \
+    -ldots \
+    -allow-multidot \
+    -d \
+    -r \
+    -l \
+    -J \
+    -no-emul-boot \
+    -boot-load-size 4 \
+    -boot-info-table \
+    -b isolinux/isolinux.bin \
+    -c isolinux/isolinux.cat \
+    ${scratch}
+isohybrid ${OUTFILE}
+) 2>&1 | sed -e 's/^/    /'
+
+echo ">>> Successfully created ISO"
+(
+ls -lh ${OUTFILE}
+) | sed -e 's/^/    /'
